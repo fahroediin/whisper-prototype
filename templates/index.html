@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Meeting Room Proto</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        .box { border: 1px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 8px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        #log { text-align: left; background: #f4f4f4; padding: 10px; }
+        .speaker-name { font-weight: bold; color: blue; }
+    </style>
+</head>
+<body>
+    <h1>🎙️ Smart Meeting Room</h1>
+
+    <div class="box">
+        <h3>1. Enrollment (Kenalkan Suara)</h3>
+        <input type="text" id="userName" placeholder="Nama Peserta">
+        <button onclick="startEnroll()">Rekam Suara (5 Detik)</button>
+        <p id="enrollStatus">Belum terdaftar</p>
+    </div>
+
+    <div class="box">
+        <h3>2. Meeting Session</h3>
+        <button id="btnStart" onclick="startMeeting()" style="background: #d4ffd4;">Mulai Meeting</button>
+        <button id="btnStop" onclick="stopMeeting()" style="background: #ffd4d4;" disabled>Berhenti & Transcribe</button>
+    </div>
+
+    <div class="box">
+        <h3>3. Hasil Transkripsi</h3>
+        <div id="log">Hasil akan muncul di sini...</div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+
+        async function startEnroll() {
+            const name = document.getElementById('userName').value;
+            if(!name) return alert("Isi nama dulu!");
+            
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.start();
+            document.getElementById('enrollStatus').innerText = "Merekam... Bicara sekarang!";
+
+            setTimeout(() => {
+                mediaRecorder.stop();
+                mediaRecorder.ondataavailable = async (e) => {
+                    const blob = new Blob([e.data], { type: 'audio/wav' });
+                    const formData = new FormData();
+                    formData.append('name', name);
+                    formData.append('file', blob);
+                    
+                    await fetch('/enroll', { method: 'POST', body: formData });
+                    document.getElementById('enrollStatus').innerText = `✅ ${name} Terdaftar!`;
+                };
+            }, 5000);
+        }
+
+        async function startMeeting() {
+            audioChunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.start();
+            
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnStop').disabled = false;
+        }
+
+        async function stopMeeting() {
+            mediaRecorder.stop();
+            document.getElementById('btnStop').disabled = true;
+            document.getElementById('log').innerText = "Sedang memproses AI... mohon tunggu...";
+
+            mediaRecorder.onstop = async () => {
+                const blob = new Blob(audioChunks, { type: 'audio/wav' });
+                const formData = new FormData();
+                formData.append('file', blob);
+
+                const response = await fetch('/process_meeting', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                let html = "";
+                data.transcript.forEach(item => {
+                    html += `<p><span class="speaker-name">${item.speaker}:</span> ${item.text}</p>`;
+                });
+                document.getElementById('log').innerHTML = html;
+                document.getElementById('btnStart').disabled = false;
+            };
+        }
+    </script>
+</body>
+</html>
